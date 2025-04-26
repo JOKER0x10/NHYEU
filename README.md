@@ -61,3 +61,15 @@ python3 NHYE.py -d example.com
 ```bash
 python3 NHYE.py -d example.com -s
 ```
+## 📌Advanced Uses
+```bash
+cat scan_results/example.com/js_url.txt | nuclei -t nuclei-templates/http/exposures/
+
+cat scan_results/example.com/params_url.txt | sqlmap --level 3  --risk 3 --random-agent --tamper=space2hash,space2comment
+```
+## Use in scripts:
+```bash
+from NHYE import NHYE
+scanner = NHYE("example.com")
+scanner.get_all_urls()
+```
