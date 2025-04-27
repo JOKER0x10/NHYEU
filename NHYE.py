@@ -46,7 +46,7 @@ class NHYE:
                     full_link = urljoin(f"https://{self.base_url}", link)
                     self.all_links.add(full_link)
 
-        archive_url = f"https://web.archive.org/cdx/search/cdx?url=*.{self.base_url}/*&output=json&fl=original&collapse=urlkey"
+        archive_url = f"https://web.archive.org/cdx/search/cdx?url={self.base_url}/*&output=json&fl=original&collapse=urlkey"
         try:
             res = requests.get(archive_url, timeout=50)
             if res.status_code == 200:
