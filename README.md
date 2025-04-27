@@ -36,7 +36,7 @@ scan_results/
 
 ```
 ## 🛠 Installation
-It is recommended to turn on `vpn` to maximise the use of the tool
+It is recommended to turn on `vpn` to maximise the use of the tool😇
 
 You must install httpx if you don't have it `go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest`
 ```bash
