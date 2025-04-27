@@ -39,7 +39,7 @@ scan_results/
 
 You must install httpx if you don't have it `go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest`
 ```bash
-git clone https://github.com/NHYE79/NHYEU.git
+$ git clone https://github.com/NHYE79/NHYEU.git
 cd NHYEU
 python3 -m venv NHYEU
 source NHYEU/bin/activate
