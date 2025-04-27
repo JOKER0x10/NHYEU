@@ -44,6 +44,7 @@ cd NHYEU
 python3 -m venv NHYEU
 source NHYEU/bin/activate
 pip3 install -r requirements.txt
+sudo chmod +x NHYE.py
 ```
 ## using
 
