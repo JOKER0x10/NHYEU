@@ -62,7 +62,7 @@ python3 NHYE.py -d example.com
 ```bash
 python3 NHYE.py -d example.com -s
 ```
-## 📌Advanced Uses
+## 📌Advanced Uses💀
 ```bash
 cat scan_results/example.com/js_url.txt | nuclei -t nuclei-templates/http/exposures/
 
