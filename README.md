@@ -14,9 +14,6 @@
 - **HTTPX Integration** to filter live URLs
 -------------------------------------------------------------------
 
-![Image](https://github.com/user-attachments/assets/f8d2e2fc-a1a5-42dc-b86a-e7039e2b0c94)
-
-
 --------------------------------------------------------------------
 📂 **Output Structure**
 ```bash
