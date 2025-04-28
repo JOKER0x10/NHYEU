@@ -53,6 +53,13 @@ python myapp.py -d example.com --silent
 - Progress tracking with colorized output
 - Configurable connection settings
 
+## 📌Advanced Uses💀
+```bash
+cat scan_results/example.com/js_url.txt | nuclei -t nuclei-templates/http/exposures/
+
+cat scan_results/example.com/params_url.txt | sqlmap --level 3  --risk 3 --random-agent --tamper=space2hash,space2comment
+```
+
 ## 📝 Output
 
 Results are automatically saved in the `scan_results` directory, organized by domain name. Each scan creates separate `TXT` files for:
