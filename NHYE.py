@@ -1,199 +1,287 @@
-import requests
-from bs4 import BeautifulSoup
+import asyncio
+import httpx
 import os
 import re
-import sys
+import json
+from typing import Set, Dict, Optional
 from urllib.parse import urljoin
+from bs4 import BeautifulSoup
 from colorama import Fore, Style, init
+from tqdm.asyncio import tqdm_asyncio
 import argparse
 
+# Initialize colorama
 init(autoreset=True)
 
-class NHYE:
-    def __init__(self, url, silent=False):
+class NHYEX_Optimized:
+
+    TIMEOUT_SECONDS = 30
+    MAX_CONNECTIONS = 50
+    RESULTS_FOLDER = "scan_results"
+    
+
+    IGNORED_PATHS = {
+        'admin', 'wp-admin', 'webmail', '.git', 'backup',
+        'test', 'tmp', 'temp', 'old', 'dev', 'development',
+        'robots.txt', 'sitemap.xml'
+    }
+    
+
+    IGNORED_EXTENSIONS = {
+        '.jpg', '.jpeg', '.png', '.gif', '.ico', '.svg',
+        '.css', '.map', '.woff', '.ttf', '.eot'
+    }
+    
+    def __init__(self, domain: str, dynamic: bool = False, silent: bool = False):
+
+        if not domain or not domain.strip():
+            raise ValueError("Domain cannot be empty")
+            
+        self.domain = domain.strip().replace('https://', '').replace('http://', '').rstrip('/')
+        self.dynamic = dynamic
         self.silent = silent
-        self.base_url = re.sub(r'^https?://', '', url.strip())
-        self.url = self.base_url.replace('/', '_')
-        self.domain_dir = os.path.join(os.getcwd(), "scan_results", self.url)
-        os.makedirs(self.domain_dir, exist_ok=True)
         
+        self.session = httpx.AsyncClient(
+            timeout=httpx.Timeout(self.TIMEOUT_SECONDS, connect=10),
+            limits=httpx.Limits(max_connections=self.MAX_CONNECTIONS),
+            follow_redirects=True,
+            verify=False  # تجاهل أخطاء شهادات SSL
+        )
+        
+        self.active_data = {
+            'urls': set(),
+            'js': set(),
+            'files': set(),
+            'params': set(),
+            'emails': set(),
+            'phones': set()
+        }
+        
+        self._processed_urls = set()
+        self._error_types = set()
+        
+        self.result_dir = os.path.join(self.RESULTS_FOLDER, self.domain)
+        os.makedirs(self.result_dir, exist_ok=True)
+        
+    async def fetch_from_wayback(self):
+        """جلب الروابط الأرشيفية من Wayback Machine"""
+        wayback_url = f"https://web.archive.org/cdx/search/cdx?url={self.domain}/*&output=json&fl=original&collapse=digest"
         try:
-            self.response = requests.get(f"https://{self.base_url}", timeout=50)
-            self.soup = BeautifulSoup(self.response.text, 'html.parser')
-            self.all_links = set()
-        except Exception as e:
-            if not self.silent:
-                print(f"{Fore.RED}Error processing {self.base_url}: {e}{Style.RESET_ALL}")
-            self.soup = None
-
-    def get_all_urls(self):
-        if not self.soup:
-            return
-
-        tags_attrs = [
-            ("a", "href"),
-            ("link", "href"),
-            ("img", "src"),
-            ("script", "src"),
-            ("iframe", "src"),
-            ("form", "action")
-        ]
-
-        for tag, attr in tags_attrs:
-            for t in self.soup.find_all(tag):
-                link = t.get(attr)
-                if link:
-                    full_link = urljoin(f"https://{self.base_url}", link)
-                    self.all_links.add(full_link)
-
-        archive_url = f"https://web.archive.org/cdx/search/cdx?url={self.base_url}/*&output=json&fl=original&collapse=urlkey"
-        try:
-            res = requests.get(archive_url, timeout=50)
+            res = await self.session.get(wayback_url)
             if res.status_code == 200:
                 data = res.json()
-                urls = [item[0] for item in data[1:]] if len(data) > 1 else []
-                for url in urls:
-                    self.all_links.add(url)
+                wayback_urls = [entry[0] for entry in data[1:]] 
+                
+                tasks = [self.process_url(url) for url in wayback_urls]
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                if not self.silent:
+                    for result in results:
+                        if isinstance(result, Exception):
+                            print(f"{Fore.RED}Task Error: {result}{Style.RESET_ALL}")
+                
         except Exception as e:
             if not self.silent:
-                print(f"{Fore.YELLOW}Warning: Could not fetch archive for {self.base_url}: {e}{Style.RESET_ALL}")
+                print(f"{Fore.RED}Wayback Machine Error: {e}{Style.RESET_ALL}")
 
-    def save_urls(self):
-        if not self.all_links:
-            return
+    def _should_process_url(self, url: str) -> bool:
 
-        file_path = os.path.join(self.domain_dir, "all_urls.txt")
-        skip_ext = (".png", ".jpeg", ".jpg", ".gif", ".svg", ".ico", ".css",
-                    ".ttf", ".woff", ".woff2", ".eot", ".otf", ".map")
-        x = 0
-
-        with open(file_path, "w", encoding="utf-8") as file:
-            for link in self.all_links:
-                link = link.strip()
-                if not link.lower().endswith(skip_ext):
-                    x += 1
-                    if not self.silent:
-                        print(f"🔥:{x} {link}")
-                    file.write(f"{link}\n")
-
-        os.system(f"cat {file_path} | httpx -mc 200 > {os.path.join(self.domain_dir, 'all_urls_200.txt')} 2>/dev/null {'&& clear' if not self.silent else ''}")
-
-    def filter_and_save(self, output_filename, condition_func, message):
-        if not self.silent:
-            print(message)
-
-        input_file = os.path.join(self.domain_dir, "all_urls_200.txt")
-        output_file = os.path.join(self.domain_dir, output_filename)
-        x = 0
-
-        if not os.path.exists(input_file):
-            if not self.silent:
-                print(f"{Fore.YELLOW}No valid URLs found for {self.base_url}{Style.RESET_ALL}")
-            return
-
-        with open(input_file, "r", encoding="utf-8") as file_in, \
-             open(output_file, "w", encoding="utf-8") as file_out:
-            for link in file_in:
-                link = link.strip()
-                if condition_func(link):
-                    x += 1
-                    if not self.silent:
-                        print(f"🔥: {x} {Fore.GREEN}{link}")
-                    file_out.write(f"{link}\n")
-
-    def get_all_link_file(self):
-        exts = (".xls", ".xml", ".xlsx", ".zip", ".pptx", ".docx", ".sql", ".doc",
-                ".pdf", ".json", ".txt", ".csv", ".log", ".conf", ".config", ".cfg",
-                ".ini", ".yml", ".yaml", ".tar", ".gz", ".tgz", ".bak", ".7z",
-                ".rar", ".cache", ".secret", ".db", ".backup", ".md", ".md5",
-                ".exe", ".dll", ".bin", ".bat", ".sh", ".deb", ".rpm", ".iso",
-                ".img", ".msi", ".dmg", ".tmp", ".crt", ".pem", ".key", ".pub", ".asc")
-        self.filter_and_save(
-            "file_url.txt",
-            lambda link: link.lower().endswith(exts),
-            f"{Fore.RED}--------------------------- files URL ----------------------------------"
-        )
-
-    def get_all_link_js(self):
-        self.filter_and_save(
-            "js_url.txt",
-            lambda link: link.lower().endswith(".js"),
-            f"{Fore.RED}--------------------------- js URL ----------------------------------"
-        )
-
-    def get_all_link_params(self):
-        self.filter_and_save(
-            "params_url.txt",
-            lambda link: "?" in link,
-            f"{Fore.RED}--------------------------- params URL ----------------------------------"
-        )
-
-def print_scan_results():
-    results_dir = os.path.join(os.getcwd(), "scan_results")
-    if not os.path.exists(results_dir):
-        return
-
-    print(f"\n{Fore.MAGENTA}Scan results:🎉 {Style.RESET_ALL}")
-    for domain in os.listdir(results_dir):
-        domain_path = os.path.join(results_dir, domain)
-        if os.path.isdir(domain_path):
-            print(f"{Fore.BLUE}{domain}/{Style.RESET_ALL}")
-            for file in sorted(os.listdir(domain_path)):
-                print(f"    ├── {Fore.GREEN}{file}{Style.RESET_ALL}")
-
-def process_domain(domain, silent=False):
-    if not silent:
-        print(f"\n{Fore.CYAN}Processing domain: {domain}{Style.RESET_ALL}")
-    else:
-        print(f"{Fore.YELLOW}The tool is running for 🚀{domain}، Please wait...{Style.RESET_ALL}", end='\r')
-    
-    nhye = NHYE(domain, silent)
-    nhye.get_all_urls()
-    if nhye.all_links:
-        nhye.save_urls()
-        nhye.get_all_link_file()
-        nhye.get_all_link_js()
-        nhye.get_all_link_params()
-
-def main():
-    parser = argparse.ArgumentParser(description='Extract URLs from domains')
-    group = parser.add_mutually_exclusive_group(required=False)
-    group.add_argument('-f', '--file', help='File containing domains (one per line)')
-    group.add_argument('-d', '--domain', help='Single domain to process')
-    parser.add_argument('-s', '--silent', action='store_true', help='Run in silent mode (minimal terminal output)')
-    parser.add_argument('--show-tree', action='store_true', help='Show directory tree after completion')
-    
-    args = parser.parse_args()
-
-
-    os.makedirs("scan_results", exist_ok=True)
-
-    domains = []
-    
-    if not sys.stdin.isatty():
-        domains = [line.strip() for line in sys.stdin if line.strip()]
-    elif args.file:
         try:
-            with open(args.file, 'r') as f:
-                domains = [line.strip() for line in f if line.strip()]
-        except FileNotFoundError:
-            if not args.silent:
-                print(f"{Fore.RED}Error: File {args.file} not found{Style.RESET_ALL}")
-            sys.exit(1)
-    elif args.domain:
-        domains = [args.domain]
-    else:
-        parser.print_help()
-        sys.exit(1)
+    
+            path = url.split('/')[-1].lower()
+            if any(ignored in url.lower() for ignored in self.IGNORED_PATHS):
+                return False
+                
+   
+            if any(path.endswith(ext) for ext in self.IGNORED_EXTENSIONS):
+                return False
+                
+            return True
+        except:
+            return True
+    
+    def _normalize_url(self, url: str) -> str:
+
+        url = url.lower()
+        url = url.replace('http://', '').replace('https://', '')
+        url = url.replace('www.', '')
+        if ':80/' in url:
+            url = url.replace(':80/', '/')
+        return url
+
+    async def process_url(self, url: str) -> bool:
+     
+        normalized_url = self._normalize_url(url)
+        if normalized_url in self._processed_urls:
+            return False
+            
+
+        if not self._should_process_url(url):
+            return False
+        
+        self._processed_urls.add(normalized_url)
+        
+        try:
+            for _ in range(2):  
+                try:
+                    response = await self.session.get(url)
+                    if response.status_code == 200:
+                        self._categorize_url(url, response)
+                        return True
+                    break  
+                except httpx.TimeoutException:
+                    continue 
+                except Exception as e:
+                    break
+        except Exception as e:
+            if not self.silent:
+                error_key = f"{normalized_url}"
+                if error_key not in self._error_types:
+                    self._error_types.add(error_key)
+                    print(f"{Fore.RED}Processing error {url}{Style.RESET_ALL}")
+        return False
+
+    def _categorize_url(self, url, response=None):
+  
+        self.active_data['urls'].add(url)
+        
+        # تصنيف حسب نوع الرابط
+        if url.endswith('.js'):
+            self.active_data['js'].add(url)
+            if response:
+                self._extract_from_js(response.text)
+        elif '?' in url:
+            self.active_data['params'].add(url)
+        
+        # تصنيف الملفات
+        file_exts = (".xls", ".xml", ".xlsx", ".zip", ".pptx", ".docx", ".sql",".doc", ".PDF", ".pdf", ".json", ".txt", ".csv", ".log", ".conf", ".config", ".cfg", ".ini", ".yml", ".yaml", ".tar", ".gz", ".tgz", ".bak", ".7z", ".rar", ".cache", ".secret", ".db", ".backup", ".md", ".md5", ".exe", ".dll", ".bin", ".bat", ".sh", ".tar", ".deb", ".rpm", ".iso", ".img", ".msi", ".dmg", ".tmp", ".crt", ".pem", ".key", ".pub", ".asc")
+        if any(url.endswith(ext) for ext in file_exts):
+            self.active_data['files'].add(url)
+
+    def _extract_from_js(self, js_text):
+   
+        self.active_data['emails'].update(re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', js_text))
+        self.active_data['phones'].update(re.findall(r'\b(?:\+?\d{1,3}[\s-]?)?\d{7,15}\b(?=\s|$)', js_text))
+
+    async def crawl(self):
+
+        base_url = f"https://{self.domain}"
+        res = await self.session.get(base_url)
+        
+        if res.status_code == 200:
+            soup = BeautifulSoup(res.text, 'html.parser')
+            tasks = set()
+            
+            for tag, attr in [("a", "href"), ("link", "href"), ("img", "src"), ("script", "src")]:
+                for element in soup.find_all(tag):
+                    if link := element.get(attr):
+                        full_url = urljoin(base_url, link)
+                        try:
+                            # Validate the URL
+                            httpx.URL(full_url)
+                            tasks.add(self.process_url(full_url))
+                        except httpx.InvalidURL:
+                            if not self.silent:
+                                print(f"{Fore.RED}Invalid URL skipped: {full_url}{Style.RESET_ALL}")
+            
+            await tqdm_asyncio.gather(*tasks, desc="Crawling URLs", disable=self.silent)
+
+    async def save_results(self):
+
+        for name, data in self.active_data.items():
+            if data:
+                file_path = os.path.join(self.result_dir, f"{name}.txt")
+                with open(file_path, "w", encoding="utf-8") as f:
+                    for item in sorted(data):
+                        f.write(item + "\n")
+
+    async def __aenter__(self) -> 'NHYEX_Optimized':
+
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+
+        await self.session.aclose()
+
+    async def run(self) -> None:
+
+        try:
+            if not self.silent:
+                print(f"{Fore.CYAN}🚀 Starting scan for {self.domain}...{Style.RESET_ALL}")
+            
+
+            await asyncio.gather(
+                self.crawl(),
+                self.fetch_from_wayback()
+            )
+            
+            await self.save_results()
+            
+
+            total_items = sum(len(data) for data in self.active_data.values())
+            
+            if not self.silent:
+                print(f"\n{Fore.GREEN}✅ Scan completed! Results:{Style.RESET_ALL}")
+                for name, data in self.active_data.items():
+                    print(f"{Fore.YELLOW}• {name.capitalize()}: {len(data)}{Style.RESET_ALL}")
+                print(f"\n📁 Saved to: {self.result_dir}")
+
+        except Exception as e:
+            if not self.silent:
+                print(f"\n{Fore.RED}❌ Error: {str(e)}{Style.RESET_ALL}")
+        finally:
+            await self.session.aclose()
+
+def clean_domain(domain: str) -> str:
+
+    domain = domain.strip().lower()
+    domain = domain.replace('https://', '').replace('http://', '')
+    domain = domain.replace('www.', '')
+    if domain.endswith('/'):
+        domain = domain[:-1]
+    return domain
+
+async def scan_multiple_domains(domains, dynamic=False, silent=False):
 
     for domain in domains:
-        process_domain(domain, args.silent)
+        try:
+            clean_domain_name = clean_domain(domain)
+            print(f"\n{Fore.CYAN}Domain scanning in progress: {domain}{Style.RESET_ALL}")
+            scanner = NHYEX_Optimized(clean_domain_name, dynamic, silent)
+            await scanner.run()
+            print(f"{Fore.GREEN}Domain scan completed: {domain}{Style.RESET_ALL}")
+        except Exception as e:
+            print(f"{Fore.RED}Domain scan error {domain}: {str(e)}{Style.RESET_ALL}")
 
-
-    if (not args.silent or args.show_tree):
-        print_scan_results()
-    elif args.silent:
-        print(f"\n{Fore.GREEN} All domains have been successfully processed! ✅{Style.RESET_ALL}")
+def main():
+    parser = argparse.ArgumentParser(description="Web Scanner Tool")
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("-d", "--domain", help="One domain for scanning")
+    group.add_argument("-l", "--list", help="A file path containing a list of domains")
+    parser.add_argument("--dynamic", help="Dynamic Scan Activation", action="store_true")
+    parser.add_argument("--silent", help="Hide error messages", action="store_true")
+    
+    import urllib3
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    
+    args = parser.parse_args()
+    
+    domains = []
+    if args.domain:
+        domains = [args.domain]
+    elif args.list:
+        try:
+            with open(args.list, 'r') as f:
+                domains = [line.strip() for line in f if line.strip()]
+            print(f"{Fore.CYAN}Downloaded {len(domains)} Domain from the file{Style.RESET_ALL}")
+        except Exception as e:
+            print(f"{Fore.RED}Error reading the domains file: {str(e)}{Style.RESET_ALL}")
+            return
+    
+    if not domains:
+        print(f"{Fore.RED}No domains have been selected for testing{Style.RESET_ALL}")
+        return
+        
+    asyncio.run(scan_multiple_domains(domains, args.dynamic, args.silent))
 
 if __name__ == "__main__":
     x = """
@@ -209,4 +297,7 @@ if __name__ == "__main__":
 """
 
     print(f"{Fore.GREEN}{x}{Style.RESET_ALL}")
-    main()
+    try:
+        main()
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
