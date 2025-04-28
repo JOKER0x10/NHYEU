@@ -1,73 +1,72 @@
-# 🌐 NHYE - Advanced Website Link Extractor
+# NHYE Web Scanner
 
-**NHYE** is a powerful Python tool for comprehensive link extraction and website reconnaissance. It systematically scans websites to discover all accessible URLs, JavaScript files, parameters, and downloadable resources.
+A high-performance, asynchronous web reconnaissance tool designed for efficient website analysis and information gathering.
 
-## 🔥 Key Features
+## 🚀 Features
 
-- **Complete URL Extraction** (pages, images, scripts, forms)
-- **Smart Categorization** of links (files, JS, parameters)
-- **Wayback Machine Integration** for historical URL discovery
-- **Silent Mode** for background operations
-- **Organized Output** with separate directories per domain
-- **Multiple Input Methods** (single domain, file input, or stdin)
-- **Colorized Output** for better readability
-- **HTTPX Integration** to filter live URLs
--------------------------------------------------------------------
-
---------------------------------------------------------------------
-📂 **Output Structure**
-```bash
-scan_results/
-└── www.example.com/
-    ├── all_urls.txt          # All discovered URLs
-    ├── all_urls_200.txt      # Only live URLs (status 200)
-    ├── file_url.txt          # Downloadable files (PDF, DOCX, etc)
-    ├── js_url.txt            # JavaScript files
-    └── params_url.txt        # URLs with parameters
-└── example.com/
-    ├── all_urls.txt          # All discovered URLs
-    ├── all_urls_200.txt      # Only live URLs (status 200)
-    ├── file_url.txt          # Downloadable files (PDF, DOCX, etc)
-    ├── js_url.txt            # JavaScript files
-    └── params_url.txt        # URLs with parameters
-
-```
-## 🛠 Installation
-It is recommended to turn on `vpn` to maximise the use of the tool😇
-
-You must install httpx if you don't have it `go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest`
-```bash
-$ git clone https://github.com/NHYE79/NHYEU.git
-$ cd NHYEU
-$ python3 -m venv NHYEU
-$ source NHYEU/bin/activate
-$ pip3 install -r requirements.txt
-```
-## using
-
-Basic usage
+- **Fast Concurrent Scanning**: Utilizes Python's asyncio for efficient parallel processing
+- **Historical Data**: Integrates with Wayback Machine for comprehensive URL discovery
+- **Multiple Data Collection**:
+  - URLs and endpoints
+  - JavaScript files
+  - Parameter discovery
+  - Email addresses
+  - Phone numbers
+  - File enumeration
+----------------------------------------------------------------------------------
+![Image](https://github.com/user-attachments/assets/3cab55e0-60a0-4a32-ba87-d05d95e515ea)
+----------------------------------------------------------------------------------
+## 🛠️ Installation
 
 ```bash
-python3 NHYE.py -d example.com
+# Clone the repository
+git clone https://github.com/NHYE79/NHYEU.git
+cd NHYEU
+python3 -m venv NHYEU
+source NHYEU/bin/activate
+# Install requirements
+pip3 install -r requirements.txt
 ```
-## You can also scan more than one target
-```bash
-1 python3 NHYE.py -f domain.txt
-2 cat domain.txt | python3 NHYE.py
-```
-## `-s` Silent mode (minimal output)
-```bash
-python3 NHYE.py -d example.com -s
-```
-## 📌Advanced Uses💀
-```bash
-cat scan_results/example.com/js_url.txt | nuclei -t nuclei-templates/http/exposures/
 
-cat scan_results/example.com/params_url.txt | sqlmap --level 3  --risk 3 --random-agent --tamper=space2hash,space2comment
-```
-## Use in scripts:
+## 💻 Usage
+
 ```bash
-from NHYE import NHYE
-scanner = NHYE("example.com")
-scanner.get_all_urls()
+# Scan a single domain
+python NHYEU.py -d example.com
+
+# Scan multiple domains from a file
+python NHYEU.py -l domains.txt
+
+# Enable dynamic scanning
+python myapp.py -d example.com --dynamic
+
+# Silent mode (suppress error messages)
+python myapp.py -d example.com --silent
 ```
+
+## 🔍 Key Features
+
+- Asynchronous HTTP requests for faster scanning
+- Smart URL normalization to avoid duplicates
+- Built-in error handling and retry mechanisms
+- Organized results storage in JSON format
+- Progress tracking with colorized output
+- Configurable connection settings
+
+## 📝 Output
+
+Results are automatically saved in the `scan_results` directory, organized by domain name. Each scan creates separate `TXT` files for:
+- Discovered URLs
+- JavaScript files
+- Parameters
+- Emails
+- Phone numbers
+- General files
+
+## ⚠️ Disclaimer
+
+This tool is for educational and authorized security testing purposes only. Always obtain proper permission before scanning any website.
+
+## 📄 License
+
+MIT License - feel free to use and modify as needed.
